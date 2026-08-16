@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -16,8 +16,7 @@ async function main() {
   const copiedKnowledgeBase = copyKnowledgeBase(knowledgeBasePath)
   const businessName = titleFromPdf(knowledgeBasePath)
   const questions = await collectQuestions()
-  const meta = await askMetaCredentials()
-  const railwayToken = await askRequired('Railway API token')
+  const envValues = await loadCredentialsFromEnv()
   const calendarEnabled = await askYesNo('Do you want to connect Google Calendar?')
   const followUp = await collectFollowUp()
 
@@ -38,9 +37,10 @@ async function main() {
 
   writeFileSync(join(root, '.env'), [
     'PORT=8787',
-    `META_VERIFY_TOKEN=${meta.verifyToken}`,
-    `META_WHATSAPP_TOKEN=${meta.accessToken}`,
-    `META_PHONE_NUMBER_ID=${meta.phoneNumberId}`,
+    `META_VERIFY_TOKEN=${envValues.META_VERIFY_TOKEN}`,
+    `META_WHATSAPP_TOKEN=${envValues.META_WHATSAPP_TOKEN}`,
+    `META_PHONE_NUMBER_ID=${envValues.META_PHONE_NUMBER_ID}`,
+    `RAILWAY_API_TOKEN=${envValues.RAILWAY_API_TOKEN}`,
     `FOLLOW_UP_DELAY_DAYS=${followUp.days}`,
     'ESTIMATED_TUTOR_MATCH_VALUE=150',
     '',
@@ -49,14 +49,14 @@ async function main() {
   if (calendarEnabled) printGoogleCalendarGuide()
 
   console.log('\nCreating your Railway deployment now...\n')
-  const env = { ...process.env, RAILWAY_API_TOKEN: railwayToken }
+  const env = { ...process.env, RAILWAY_API_TOKEN: envValues.RAILWAY_API_TOKEN }
 
   run('npx', ['railway', 'init', '--name', railwayProjectName, '--json'], env, true)
   run('npx', ['railway', 'add', '--service', serviceName, '--json'], env, true)
   setRailwayVariables(serviceName, env, {
-    META_VERIFY_TOKEN: meta.verifyToken,
-    META_WHATSAPP_TOKEN: meta.accessToken,
-    META_PHONE_NUMBER_ID: meta.phoneNumberId,
+    META_VERIFY_TOKEN: envValues.META_VERIFY_TOKEN,
+    META_WHATSAPP_TOKEN: envValues.META_WHATSAPP_TOKEN,
+    META_PHONE_NUMBER_ID: envValues.META_PHONE_NUMBER_ID,
     FOLLOW_UP_DELAY_DAYS: String(followUp.days),
     ESTIMATED_TUTOR_MATCH_VALUE: '150',
   })
@@ -67,7 +67,7 @@ async function main() {
   console.log('\nSetup complete.\n')
   console.log(`Dashboard URL: ${domain}`)
   console.log(`Meta callback URL: ${domain}/webhook/whatsapp`)
-  console.log(`Meta verify token: ${meta.verifyToken}`)
+  console.log(`Meta verify token: ${envValues.META_VERIFY_TOKEN}`)
   console.log('\nPaste the callback URL and verify token into Meta Developer Webhooks.')
   console.log('If you are not getting replies, let me know and I will help you fix it.\n')
   rl.close()
@@ -91,20 +91,6 @@ async function collectQuestions() {
   return questions
 }
 
-async function askMetaCredentials() {
-  console.log('\nPaste all Meta WhatsApp values in one go.')
-  console.log('Format: verify token | access token | phone number ID')
-  console.log('Example: myverifytoken | EAA... | 123456789012345\n')
-  while (true) {
-    const raw = await askRequired('Meta credentials')
-    const parts = raw.split('|').map((part) => part.trim()).filter(Boolean)
-    if (parts.length === 3) {
-      return { verifyToken: parts[0], accessToken: parts[1], phoneNumberId: parts[2] }
-    }
-    console.log('Please paste exactly three values separated by |')
-  }
-}
-
 async function collectFollowUp() {
   const days = Number(await ask('Follow up after how many days?', '2')) || 2
   console.log('\nWrite the three follow-up messages.')
@@ -114,6 +100,33 @@ async function collectFollowUp() {
     await ask('Follow-up message 3', 'Final reminder. If you still need help, reply here and we will pick this back up.'),
   ]
   return { days: Math.max(1, days), messages }
+}
+
+async function loadCredentialsFromEnv() {
+  const envPath = join(root, '.env')
+  const examplePath = join(root, '.env.example')
+  if (!existsSync(envPath)) {
+    copyFileSync(examplePath, envPath)
+  }
+
+  while (true) {
+    console.log('\nNow fill your private .env file.')
+    console.log(`File path: ${envPath}`)
+    console.log('\nAdd these values inside the file, then save it:')
+    console.log('META_VERIFY_TOKEN=your webhook verify token')
+    console.log('META_WHATSAPP_TOKEN=your Meta WhatsApp access token')
+    console.log('META_PHONE_NUMBER_ID=your Meta phone number ID')
+    console.log('RAILWAY_API_TOKEN=your Railway API token')
+    console.log('\nDo not paste these secrets into chat. Paste them into .env and save the file.')
+    await rl.question('Press Enter after you have saved .env: ')
+
+    const values = parseEnvFile(envPath)
+    const missing = requiredEnvKeys().filter((key) => isMissingEnvValue(key, values[key]))
+    if (!missing.length) return values
+
+    console.log(`\n.env is still missing: ${missing.join(', ')}`)
+    console.log('Please update and save the file, then press Enter again.')
+  }
 }
 
 function printGoogleCalendarGuide() {
@@ -141,6 +154,25 @@ function setRailwayVariables(serviceName, env, variables) {
   for (const [key, value] of Object.entries(variables)) {
     run('npx', ['railway', 'variable', 'set', `${key}=${value}`, '--service', serviceName, '--skip-deploys', '--json'], env, true)
   }
+}
+
+function parseEnvFile(envPath) {
+  const values = {}
+  for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+    const [rawKey, ...rawValue] = trimmed.split('=')
+    values[rawKey.trim()] = rawValue.join('=').trim().replace(/^"|"$/g, '')
+  }
+  return values
+}
+
+function requiredEnvKeys() {
+  return ['META_VERIFY_TOKEN', 'META_WHATSAPP_TOKEN', 'META_PHONE_NUMBER_ID', 'RAILWAY_API_TOKEN']
+}
+
+function isMissingEnvValue(key, value) {
+  return !value || value.startsWith('replace-with-') || value === `your ${key.toLowerCase()}`
 }
 
 function copyKnowledgeBase(filePath) {

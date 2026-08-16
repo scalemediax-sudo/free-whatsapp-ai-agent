@@ -10,18 +10,23 @@ Immediately continue with onboarding:
 4. Let the script ask the user one thing at a time.
 5. The first prompt must be only the knowledge-base PDF full path.
 6. Then collect qualifying questions one by one.
-7. Then collect all Meta WhatsApp values in one prompt:
-   `verify token | access token | phone number ID`
-8. Then collect the Railway API token.
-9. Then ask whether they want to connect Google Calendar.
-10. Then collect follow-up timing and the three follow-up messages.
-11. Let the onboarding script deploy to Railway.
-12. Return the final dashboard URL, Meta callback URL, and verify token.
+7. When credentials are needed, do not ask the user to paste secrets into chat.
+8. Tell the user to paste Meta and Railway values into the local `.env` file and save it.
+9. The required `.env` keys are:
+   - `META_VERIFY_TOKEN`
+   - `META_WHATSAPP_TOKEN`
+   - `META_PHONE_NUMBER_ID`
+   - `RAILWAY_API_TOKEN`
+10. After `.env` is saved, continue onboarding.
+11. Then ask whether they want to connect Google Calendar.
+12. Then collect follow-up timing and the three follow-up messages.
+13. Let the onboarding script deploy to Railway.
+14. Return the final dashboard URL, Meta callback URL, and verify token.
 
 The desired user experience is:
 
 ```text
-user says "clone it" -> clone repo -> npm install -> npm start -> ask PDF path first -> deploy -> give callback URL
+user says "clone it" -> clone repo -> npm install -> npm start -> ask PDF path first -> user saves credentials in .env -> deploy -> give callback URL
 ```
 
 If WhatsApp replies do not arrive after deployment, check:

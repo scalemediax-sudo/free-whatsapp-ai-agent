@@ -51,14 +51,24 @@ The onboarding command asks for:
 
 - knowledge-base PDF path
 - qualifying questions, one by one
-- Meta values in one prompt: verify token, access token, phone number ID
-- Railway API token
+- then it creates a private `.env` file
+- you paste Meta + Railway credentials into `.env`, not into chat
 - whether you want Google Calendar connection instructions
 - follow-up delay and three follow-up messages
+
+The required `.env` values are:
+
+```text
+META_VERIFY_TOKEN=your webhook verify token
+META_WHATSAPP_TOKEN=your Meta WhatsApp access token
+META_PHONE_NUMBER_ID=your Meta phone number ID
+RAILWAY_API_TOKEN=your Railway API token
+```
 
 Then it:
 
 - creates your private `.env`
+- waits for you to save Meta + Railway values in `.env`
 - creates `data/agent-config.json`
 - copies your PDF into `knowledge-base/`
 - creates a Railway project
