@@ -20,12 +20,22 @@ Clone this repo to launch a WhatsApp AI agent that:
 
 ## Fast Setup
 
+If you are using an AI coding agent, tell it:
+
+```text
+Clone this repo, install dependencies, and start onboarding.
+```
+
+The agent should run:
+
 ```bash
 git clone YOUR_GITHUB_REPO_URL
 cd free-whatsapp-ai-agent
 npm install
-npm run onboard
+npm start
 ```
+
+Note: GitHub repositories cannot safely auto-run code the moment they are cloned. Onboarding starts when `npm start` or `npm run onboard` is run after cloning.
 
 The onboarding command asks for:
 

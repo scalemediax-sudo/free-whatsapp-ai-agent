@@ -6,10 +6,11 @@
   "scripts": {
     "onboard": "node scripts/onboard.mjs",
     "setup": "node scripts/onboard.mjs",
+    "start": "node scripts/onboard.mjs",
     "dev": "vite",
     "api": "tsx watch server/index.ts",
     "api:once": "tsx server/index.ts",
-    "start": "node dist-server/index.js",
+    "serve": "node dist-server/index.js",
     "build": "tsc -b && vite build && tsc -p tsconfig.server.json",
     "lint": "oxlint",
     "preview": "vite preview"
