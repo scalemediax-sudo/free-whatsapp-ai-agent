@@ -23,10 +23,20 @@ Clone this repo to launch a WhatsApp AI agent that:
 If you are using an AI coding agent, tell it:
 
 ```text
-Clone this repo, install dependencies, and start onboarding.
+Clone this repo.
 ```
 
-The agent should run:
+The repo includes `AGENTS.md`, so an AI coding agent should automatically continue into onboarding after clone instead of stopping there.
+
+The first onboarding question is only:
+
+```text
+Knowledge-base PDF full path:
+```
+
+Then it asks the rest one by one.
+
+Under the hood, the agent runs:
 
 ```bash
 git clone YOUR_GITHUB_REPO_URL
@@ -39,14 +49,12 @@ Note: GitHub repositories cannot safely auto-run code the moment they are cloned
 
 The onboarding command asks for:
 
-- business name
 - knowledge-base PDF path
-- the qualifying questions your bot should ask
-- final message after the lead answers everything
-- Meta verify token
-- Meta WhatsApp access token
-- Meta phone number ID
+- qualifying questions, one by one
+- Meta values in one prompt: verify token, access token, phone number ID
 - Railway API token
+- whether you want Google Calendar connection instructions
+- follow-up delay and three follow-up messages
 
 Then it:
 

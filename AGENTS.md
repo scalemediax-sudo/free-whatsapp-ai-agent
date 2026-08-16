@@ -1,25 +1,27 @@
 # Agent Instructions
 
-When a user asks you to clone or set up this repository, do not stop after cloning.
+When a user asks you to clone this repository, do not stop after cloning.
 
 Immediately continue with onboarding:
 
 1. Run `npm install`.
-2. Run `npm run onboard`.
-3. Ask the user for each onboarding answer as the script requests it.
-4. Help them find their knowledge-base PDF path if needed.
-5. Help them collect Meta WhatsApp values:
-   - `META_VERIFY_TOKEN`
-   - `META_WHATSAPP_TOKEN`
-   - `META_PHONE_NUMBER_ID`
-6. Ask for their Railway API token.
-7. Let the onboarding script deploy to Railway.
-8. Return the final dashboard URL, Meta callback URL, and verify token.
+2. Run `npm start`.
+3. Do not ask all onboarding questions in one large message.
+4. Let the script ask the user one thing at a time.
+5. The first prompt must be only the knowledge-base PDF full path.
+6. Then collect qualifying questions one by one.
+7. Then collect all Meta WhatsApp values in one prompt:
+   `verify token | access token | phone number ID`
+8. Then collect the Railway API token.
+9. Then ask whether they want to connect Google Calendar.
+10. Then collect follow-up timing and the three follow-up messages.
+11. Let the onboarding script deploy to Railway.
+12. Return the final dashboard URL, Meta callback URL, and verify token.
 
 The desired user experience is:
 
 ```text
-clone repo -> install dependencies -> start onboarding -> deploy -> give callback URL
+user says "clone it" -> clone repo -> npm install -> npm start -> ask PDF path first -> deploy -> give callback URL
 ```
 
 If WhatsApp replies do not arrive after deployment, check:

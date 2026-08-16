@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { basename, extname, join, resolve } from 'node:path'
+import { basename, extname, join, parse, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import readline from 'node:readline/promises'
@@ -10,58 +10,54 @@ const rl = readline.createInterface({ input, output })
 
 async function main() {
   console.log('\nWhatsApp AI Agent Onboarding\n')
-  console.log('This setup will create your local config, push variables to Railway, deploy the app, and return your Meta webhook callback URL.\n')
+  console.log('I will ask one thing at a time, create your agent, deploy it to Railway, then give you the Meta callback URL.\n')
 
-  const businessName = await ask('Business name', 'My Business')
-  const agentName = await ask('Agent name', 'WhatsApp AI Agent')
-  const knowledgeBasePath = await ask('Full path to your knowledge-base PDF', '')
+  const knowledgeBasePath = await askRequired('Knowledge-base PDF full path')
   const copiedKnowledgeBase = copyKnowledgeBase(knowledgeBasePath)
+  const businessName = titleFromPdf(knowledgeBasePath)
   const questions = await collectQuestions()
-  const completionMessage = await ask(
-    'Final message after all answers are collected',
-    "Perfect, thank you. We'll get back to you soon with the next steps.",
-  )
-  const metaVerifyToken = await ask('Meta webhook verify token', 'my-verify-token')
-  const metaWhatsAppToken = await askSecret('Meta WhatsApp access token')
-  const metaPhoneNumberId = await askSecret('Meta phone number ID')
-  const railwayToken = await askSecret('Railway API token')
-  const railwayProjectName = slug(await ask('Railway project name', `${businessName} WhatsApp Agent`))
-  const serviceName = await ask('Railway service name', 'web')
+  const meta = await askMetaCredentials()
+  const railwayToken = await askRequired('Railway API token')
+  const calendarEnabled = await askYesNo('Do you want to connect Google Calendar?')
+  const followUp = await collectFollowUp()
+
+  const completionMessage = "Perfect, thank you. We have your details. We'll get back to you soon with the next steps."
+  const railwayProjectName = slug(`${businessName} WhatsApp Agent`)
+  const serviceName = 'web'
 
   mkdirSync(join(root, 'data'), { recursive: true })
   writeFileSync(join(root, 'data', 'agent-config.json'), `${JSON.stringify({
     businessName,
-    agentName,
+    agentName: 'WhatsApp AI Agent',
     knowledgeBasePath: copiedKnowledgeBase,
     completionMessage,
-    followUpMessages: [
-      `Quick follow-up from ${businessName}.`,
-      `Just checking in so ${businessName} can help you with the right next step.`,
-      `Final reminder from ${businessName}.`,
-    ],
+    calendarEnabled,
+    followUpMessages: followUp.messages,
     questions,
   }, null, 2)}\n`)
 
   writeFileSync(join(root, '.env'), [
     'PORT=8787',
-    `META_VERIFY_TOKEN=${metaVerifyToken}`,
-    `META_WHATSAPP_TOKEN=${metaWhatsAppToken}`,
-    `META_PHONE_NUMBER_ID=${metaPhoneNumberId}`,
-    'FOLLOW_UP_DELAY_DAYS=2',
+    `META_VERIFY_TOKEN=${meta.verifyToken}`,
+    `META_WHATSAPP_TOKEN=${meta.accessToken}`,
+    `META_PHONE_NUMBER_ID=${meta.phoneNumberId}`,
+    `FOLLOW_UP_DELAY_DAYS=${followUp.days}`,
     'ESTIMATED_TUTOR_MATCH_VALUE=150',
     '',
   ].join('\n'))
 
-  console.log('\nLocal config created. Deploying to Railway...\n')
+  if (calendarEnabled) printGoogleCalendarGuide()
+
+  console.log('\nCreating your Railway deployment now...\n')
   const env = { ...process.env, RAILWAY_API_TOKEN: railwayToken }
 
   run('npx', ['railway', 'init', '--name', railwayProjectName, '--json'], env, true)
   run('npx', ['railway', 'add', '--service', serviceName, '--json'], env, true)
   setRailwayVariables(serviceName, env, {
-    META_VERIFY_TOKEN: metaVerifyToken,
-    META_WHATSAPP_TOKEN: metaWhatsAppToken,
-    META_PHONE_NUMBER_ID: metaPhoneNumberId,
-    FOLLOW_UP_DELAY_DAYS: '2',
+    META_VERIFY_TOKEN: meta.verifyToken,
+    META_WHATSAPP_TOKEN: meta.accessToken,
+    META_PHONE_NUMBER_ID: meta.phoneNumberId,
+    FOLLOW_UP_DELAY_DAYS: String(followUp.days),
     ESTIMATED_TUTOR_MATCH_VALUE: '150',
   })
   run('npx', ['railway', 'up', '--service', serviceName, '--detach', '--message', 'Initial WhatsApp AI agent deploy'], env)
@@ -71,34 +67,74 @@ async function main() {
   console.log('\nSetup complete.\n')
   console.log(`Dashboard URL: ${domain}`)
   console.log(`Meta callback URL: ${domain}/webhook/whatsapp`)
-  console.log(`Meta verify token: ${metaVerifyToken}`)
-  console.log('\nIf you are not getting replies, send the Railway logs and Meta webhook screenshot so we can fix it quickly.\n')
+  console.log(`Meta verify token: ${meta.verifyToken}`)
+  console.log('\nPaste the callback URL and verify token into Meta Developer Webhooks.')
+  console.log('If you are not getting replies, let me know and I will help you fix it.\n')
   rl.close()
 }
 
 async function collectQuestions() {
-  console.log('Add the qualifying questions your WhatsApp agent should ask.')
-  console.log('Press Enter on an empty question when you are done.\n')
-  const defaults = [
-    ['name', 'Name', 'What is your full name?'],
-    ['phone', 'Phone Number', 'What phone number should our team use to contact you?'],
-  ]
-  const questions = defaults.map(([key, label, prompt]) => ({ key, label, prompt, required: true }))
+  console.log('\nNow add the qualifying questions your WhatsApp agent should ask.')
+  console.log('I will ask one by one. Press Enter on an empty question when you are done.\n')
+  const questions = []
   let index = 1
   while (true) {
-    const prompt = await ask(`Question ${index}`, '')
+    const prompt = await ask(`Qualifying question ${index}`, '')
     if (!prompt) break
-    const label = await ask(`Short label for question ${index}`, prompt)
-    questions.push({ key: normalizeKey(label), label, prompt, required: true })
+    questions.push({ key: normalizeKey(prompt), label: shortLabel(prompt), prompt, required: true })
     index += 1
   }
-  if (questions.length === defaults.length) {
-    questions.push(
-      { key: 'need', label: 'Need', prompt: 'What do you need help with?', required: true },
-      { key: 'timeline', label: 'Timeline', prompt: 'When would you like to get started?', required: true },
-    )
+  if (!questions.length) {
+    console.log('You need at least one qualifying question.')
+    return collectQuestions()
   }
   return questions
+}
+
+async function askMetaCredentials() {
+  console.log('\nPaste all Meta WhatsApp values in one go.')
+  console.log('Format: verify token | access token | phone number ID')
+  console.log('Example: myverifytoken | EAA... | 123456789012345\n')
+  while (true) {
+    const raw = await askRequired('Meta credentials')
+    const parts = raw.split('|').map((part) => part.trim()).filter(Boolean)
+    if (parts.length === 3) {
+      return { verifyToken: parts[0], accessToken: parts[1], phoneNumberId: parts[2] }
+    }
+    console.log('Please paste exactly three values separated by |')
+  }
+}
+
+async function collectFollowUp() {
+  const days = Number(await ask('Follow up after how many days?', '2')) || 2
+  console.log('\nWrite the three follow-up messages.')
+  const messages = [
+    await ask('Follow-up message 1', 'Quick follow-up. Can you answer the question above so we can help you?'),
+    await ask('Follow-up message 2', 'Just checking in. Reply here when you are ready and we will continue.'),
+    await ask('Follow-up message 3', 'Final reminder. If you still need help, reply here and we will pick this back up.'),
+  ]
+  return { days: Math.max(1, days), messages }
+}
+
+function printGoogleCalendarGuide() {
+  console.log('\nGoogle Calendar connection guide\n')
+  console.log('This repo does not auto-connect Google Calendar yet. Follow these steps after deployment:')
+  console.log('1. Open https://console.cloud.google.com/')
+  console.log('2. Create a new Google Cloud project.')
+  console.log('3. Open APIs & Services -> Library.')
+  console.log('4. Search for Google Calendar API and click Enable.')
+  console.log('5. Open APIs & Services -> OAuth consent screen.')
+  console.log('6. Choose External if you are testing with normal Gmail accounts.')
+  console.log('7. Add your app name, support email, and developer email.')
+  console.log('8. Add yourself as a test user.')
+  console.log('9. Open APIs & Services -> Credentials.')
+  console.log('10. Click Create Credentials -> OAuth client ID.')
+  console.log('11. Choose Web application.')
+  console.log('12. Add your Railway app URL as an authorized JavaScript origin.')
+  console.log('13. Add your future calendar callback route as an authorized redirect URI.')
+  console.log('14. Copy the Client ID and Client Secret.')
+  console.log('15. Store them in Railway Variables when calendar booking is added.')
+  console.log('16. Test with your own Google account first, then move the app to production in Google Cloud.\n')
 }
 
 function setRailwayVariables(serviceName, env, variables) {
@@ -108,14 +144,12 @@ function setRailwayVariables(serviceName, env, variables) {
 }
 
 function copyKnowledgeBase(filePath) {
-  if (!filePath) return undefined
   const source = resolve(filePath.replace(/^"|"$/g, ''))
   if (!existsSync(source)) {
-    console.log('Knowledge-base file not found. Continuing without copying it.')
-    return undefined
+    throw new Error('Knowledge-base PDF was not found. Check the full path and run onboarding again.')
   }
   if (extname(source).toLowerCase() !== '.pdf') {
-    console.log('Knowledge-base file is not a PDF. Continuing, but PDF is recommended.')
+    throw new Error('Knowledge-base file must be a PDF.')
   }
   mkdirSync(join(root, 'knowledge-base'), { recursive: true })
   const target = join(root, 'knowledge-base', basename(source))
@@ -128,13 +162,18 @@ async function ask(label, fallback) {
   return answer || fallback
 }
 
-async function askSecret(label) {
+async function askRequired(label) {
   const answer = (await rl.question(`${label}: `)).trim()
   if (!answer) {
     console.log(`${label} is required.`)
-    return askSecret(label)
+    return askRequired(label)
   }
   return answer
+}
+
+async function askYesNo(label) {
+  const answer = (await ask(`${label} (yes/no)`, 'no')).toLowerCase()
+  return ['y', 'yes'].includes(answer)
 }
 
 function run(command, args, env, quiet = false) {
@@ -170,6 +209,18 @@ function normalizeKey(label) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '') || `question_${Date.now()}`
+}
+
+function shortLabel(prompt) {
+  return prompt.replace(/[?.!]+$/g, '').split(/\s+/).slice(0, 4).join(' ')
+}
+
+function titleFromPdf(filePath) {
+  return parse(filePath.replace(/^"|"$/g, '')).name
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase()) || 'My Business'
 }
 
 function slug(value) {
